@@ -16,8 +16,8 @@ abstract class EazyBreakTestCase extends TestCase
 
     protected function setUp(): void
     {
-        parent::setUp();
         putenv('IS_EAZYBREAK_AVAILABLE=true');
+        parent::setUp();
 
         $this->artisan('migrate:fresh');
 

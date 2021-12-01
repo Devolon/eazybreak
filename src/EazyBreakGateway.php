@@ -2,7 +2,9 @@
 
 namespace Devolon\EazyBreak;
 
-use Devolon\EazyBreak\Services\CallEazybreakService;
+use Devolon\EazyBreak\Services\CallEazybreakPaymentCreationService;
+use Devolon\EazyBreak\Services\CallEazybreakRefundService;
+use Devolon\Payment\Contracts\CanRefund;
 use Devolon\Payment\Contracts\HasUpdateTransactionData;
 use Devolon\Payment\Contracts\PaymentGatewayInterface;
 use Devolon\Payment\DTOs\PurchaseResultDTO;
@@ -11,15 +13,21 @@ use Devolon\Payment\Models\Transaction;
 use Devolon\Payment\Services\GenerateCallbackURLService;
 use Devolon\Payment\Services\SetGatewayResultService;
 
-class EazyBreakGateway implements PaymentGatewayInterface, HasUpdateTransactionData
+class EazyBreakGateway implements PaymentGatewayInterface, HasUpdateTransactionData, CanRefund
 {
     public const NAME = 'eazybreak';
 
     public function __construct(
         private GenerateCallbackURLService $generateCallbackURLService,
         private SetGatewayResultService $setGatewayResultService,
-        private CallEazybreakService $callEazybreakService,
+        private CallEazybreakPaymentCreationService $callEazybreakPaymentCreationService,
+        private CallEazybreakRefundService $callEazybreakRefundService,
     ) {
+    }
+
+    public function getName(): string
+    {
+        return self::NAME;
     }
 
     public function purchase(Transaction $transaction): PurchaseResultDTO
@@ -27,7 +35,7 @@ class EazyBreakGateway implements PaymentGatewayInterface, HasUpdateTransactionD
         $failureUrl = ($this->generateCallbackURLService)($transaction, Transaction::STATUS_FAILED);
         $successUrl = ($this->generateCallbackURLService)($transaction, Transaction::STATUS_DONE);
         $amount = number_format($transaction->money_amount, 2, '.', '');
-        $url = ($this->callEazybreakService)($transaction->id, $amount, $successUrl, $failureUrl)->url;
+        $url = ($this->callEazybreakPaymentCreationService)($transaction->id, $amount, $successUrl, $failureUrl)->url;
 
         return PurchaseResultDTO::fromArray([
             'should_redirect' => true,
@@ -58,9 +66,16 @@ class EazyBreakGateway implements PaymentGatewayInterface, HasUpdateTransactionD
         return true;
     }
 
-    public function getName(): string
+    public function refund(Transaction $transaction): bool
     {
-        return self::NAME;
+        $refundResult = ($this->callEazybreakRefundService)($transaction->gateway_results['commit']['id']);
+        ($this->setGatewayResultService)(
+            $transaction,
+            'refund',
+            $refundResult->toArray()
+        );
+
+        return true;
     }
 
     public function updateTransactionDataRules(string $newStatus): array
