@@ -3,6 +3,8 @@
 namespace Devolon\EazyBreak\Tests\Unit;
 
 use Devolon\EazyBreak\DTOs\EazyBreakResponseDTO;
+use Devolon\EazyBreak\Services\CallEazybreakRefundService;
+use Devolon\Payment\Contracts\CanRefund;
 use Devolon\Payment\Contracts\HasUpdateTransactionData;
 use Devolon\Payment\Contracts\PaymentGatewayInterface;
 use Devolon\Payment\DTOs\PurchaseResultDTO;
@@ -11,7 +13,7 @@ use Devolon\Payment\Models\Transaction;
 use Devolon\Payment\Services\GenerateCallbackURLService;
 use Devolon\Payment\Services\PaymentGatewayDiscoveryService;
 use Devolon\EazyBreak\EazyBreakGateway;
-use Devolon\EazyBreak\Services\CallEazybreakService;
+use Devolon\EazyBreak\Services\CallEazybreakPaymentCreationService;
 use Devolon\EazyBreak\Tests\EazyBreakTestCase;
 use Devolon\Payment\Services\SetGatewayResultService;
 use Hamcrest\Core\AnyOf;
@@ -54,7 +56,7 @@ class EazyBreakGatewayTest extends EazyBreakTestCase
         $successUrl = $this->faker->url;
         $failureUrl = $this->faker->url;
         $generateCallbackURLService = $this->mockGenerateCallBackUrlService();
-        $callEazybreakService = $this->mockCallEazybreakService();
+        $callEazybreakPaymentCreationService = $this->mockCallEazybreakPaymentCreationService();
         $transaction = Transaction::factory()->create(['money_amount' => $this->faker->randomFloat('1')]);
         $amount = number_format($transaction->money_amount, 2, '.', '');
         $easyBreakResponseDTO = new EazyBreakResponseDTO(
@@ -84,7 +86,7 @@ class EazyBreakGatewayTest extends EazyBreakTestCase
                     Transaction::STATUS_FAILED => $failureUrl,
                 };
             });
-        $callEazybreakService->shouldReceive('__invoke')
+        $callEazybreakPaymentCreationService->shouldReceive('__invoke')
             ->once()
             ->withArgs([$transaction->id, (float)$amount, $successUrl, $failureUrl])
             ->andReturn($easyBreakResponseDTO);
@@ -231,6 +233,48 @@ class EazyBreakGatewayTest extends EazyBreakTestCase
         $this->assertEquals($expected, $result);
     }
 
+    public function testRefund()
+    {
+        // Arrange
+        $setGatewayResultService = $this->mockSetGatewayResultService();
+        $callEazybreakRefundService = $this->mockCallEazybreakRefundService();
+        $eazybreakTransactionId = $this->faker->randomNumber();
+        $transaction = Transaction::factory()->create([
+            'gateway_results' => [
+                'commit' => [
+                    'id' => $eazybreakTransactionId,
+                ]
+            ]
+        ]);
+        $easyBreakResponseDTO = new EazyBreakResponseDTO(
+            $this->faker->randomNumber(),
+            $this->faker->word(),
+            $this->faker->url,
+            $this->faker->randomNumber(),
+            $this->faker->word(),
+            $this->faker->randomNumber(),
+        );
+        /** @var CanRefund $gateway */
+        $gateway = $this->discoverGateway();
+
+        // Expect
+        $callEazybreakRefundService->shouldReceive('__invoke')
+            ->once()
+            ->withArgs([$eazybreakTransactionId])
+            ->andReturn($easyBreakResponseDTO);
+
+        $setGatewayResultService
+            ->shouldReceive('__invoke')
+            ->with($transaction, 'refund', $easyBreakResponseDTO->toArray())
+            ->once();
+
+        // Act
+        $result = $gateway->refund($transaction);
+
+        // Assert
+        $this->assertTrue($result);
+    }
+
     private function resolveGateway(): EazyBreakGateway
     {
         return resolve(EazyBreakGateway::class);
@@ -253,9 +297,14 @@ class EazyBreakGatewayTest extends EazyBreakTestCase
         return $this->mock(GenerateCallbackURLService::class);
     }
 
-    private function mockCallEazybreakService(): MockInterface
+    private function mockCallEazybreakPaymentCreationService(): MockInterface
     {
-        return $this->mock(CallEazybreakService::class);
+        return $this->mock(CallEazybreakPaymentCreationService::class);
+    }
+
+    private function mockCallEazybreakRefundService(): MockInterface
+    {
+        return $this->mock(CallEazybreakRefundService::class);
     }
 
     private function mockSetGatewayResultService(): MockInterface
